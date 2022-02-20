@@ -32,6 +32,8 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
     no warnings qw(experimental::signatures) ;
 
     my $DBH ;
+    my $TIMEOUT       = 30 ;
+    my $GOT_USERNAMES = 1 ;
     my $E_OK          = 0 ;
     my $E_GENERIC     = 1 ;
     my $E_NO_USERNAME = 5 ;
@@ -57,7 +59,12 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
                 }
         ) ;
 
-    while ( $ppi->signal_received !~ /^(TERM|INT)$/ ) {
+    while ( $GOT_USERNAMES and $ppi->signal_received !~ /^(TERM|INT)$/ ) {
+
+        # Note: this while() loop does NOT cycle for every child, so don't be
+        #       tempted to set up per-child init data here. The before_fork()
+        #       callback might be useful, or else a callback from the child,
+        #       as shown here.
 
         # Sending a USR1 to the parent process, or calling $ppi->signal_received
         # (note: with no args) in the parent, will cause the connection to be renewed,
@@ -91,9 +98,13 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
         $ppi->finish( $exit, { username => $username, data => $data } ) ;
         }
 
+    $ppi->wait_all_children( $TIMEOUT ) ;
+
 
     sub get_username ( $ppi, $kidpid ) {
-        return get_next_username_from_database($DBH) ;
+        my $un = get_next_username_from_database($DBH) ;
+        $GOT_USERNAMES = 0 unless $un ;
+        return $un ;
         }
 
 
