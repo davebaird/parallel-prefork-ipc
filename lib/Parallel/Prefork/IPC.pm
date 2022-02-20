@@ -69,6 +69,8 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
 
         # in child
 
+        undef $DBH ;    # just in case
+
         my $username = $ppi->callback('get_username') ;
         chomp $username ;
 
