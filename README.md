@@ -120,15 +120,15 @@ The `callbacks` accessor holds a hashref mapping callback method names to codere
 
 Callbacks are passed the parent object, the child PID and the payload sent from the child:
 
-    $coderef->($self, $kidpid, $payload) ;
+    $coderef->($ppi, $kidpid, $payload) ;
 
 In the child, callbacks are called thusly:
 
-    $self->callback( $method_name => $payload ) ;
+    $ppi->callback( $method_name => $payload ) ;
 
 Empty/missing payloads are fine:
 
-    $self->callback( $method_name ) ;
+    $ppi->callback( $method_name ) ;
 
 `$payload` can be a string, or a reference. The payload will be encoded as JSON
 before sending, and decoded from JSON in the parent.
