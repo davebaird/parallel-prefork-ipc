@@ -159,7 +159,7 @@ loop and keep adding new jobs. I stole the callback mechanism from there.
 
 `Parallel::Runner` has everything except an explicit callback mechanism. However, it
 does have `iteration_callback` which can probably be used to build such a thing
-easily enough. Also, although it does pass data back to the parent, you have to
+easily enough. Although it does pass final data back to the parent, you have to
 handle serialization yourself for anything more than simple strings.
 
 There are other options on CPAN as well, especially in the world of async programming,
