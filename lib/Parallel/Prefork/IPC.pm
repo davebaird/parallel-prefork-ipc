@@ -247,6 +247,10 @@ C<Parallel::Prefork>
 
 =back
 
+=head3 Read more
+
+Apart from the docs for C<Parallel::Prefork>, there's a useful blog here: https://perl-users.jp/articles/advent-calendar/2010/english/4
+
 =cut
 
 # in parent
@@ -256,24 +260,27 @@ KID:
         try {
             my $message = $self->_receive($kidpid) ;
             next KID unless $message ;
-
-            if ( $message->{method} eq 'callback' ) {
-                my $parent_payload
-                    = $self->callbacks->{ $message->{callback_method} }->( $self, $kidpid, $message->{child_payload} ) ;
-                $self->_send( { parent_payload => $parent_payload }, $kidpid ) ;
-                }
-            elsif ( $message->{method} eq '__finish__' ) {
-                $self->{worker_pids}->{$kidpid}->{final_payload} = $message->{payload} ;
-                $self->_send( {}, $kidpid ) ;    # child is blocked in finish() until it hears back from us
-                }
-            else {
-                die sprintf "Unknown callback type '%s' sent by kid $kidpid", $message->{method} ;
-                }
+            $self->_handle_callback( $kidpid, $message ) ;
             }
-
         catch ($e) {
-            warn "Ignoring error handling callback for child $kidpid: $e" ;
+            warn "Caught error handling callback for child $kidpid: $e" ;
             }
+        }
+    }
+
+# in parent
+sub _handle_callback ( $self, $kidpid, $message ) {
+    if ( $message->{method} eq 'callback' ) {
+        my $cb             = $self->callbacks->{ $message->{callback_method} } ;
+        my $parent_payload = $cb->( $self, $kidpid, $message->{child_payload} ) ;
+        $self->_send( { parent_payload => $parent_payload }, $kidpid ) ;
+        }
+    elsif ( $message->{method} eq '__finish__' ) {
+        $self->{worker_pids}->{$kidpid}->{final_payload} = $message->{payload} ;    # this will be picked up in the call to _on_child_reap()
+        $self->_send( {}, $kidpid ) ;                                               # child is blocked in finish() until it hears back from us
+        }
+    else {
+        die sprintf "Unknown callback type '%s' sent by kid $kidpid", $message->{method} ;
         }
     }
 
@@ -329,119 +336,157 @@ sub _receive ( $self, $kidpid = $$ ) {
     return $message ;
     }
 
-# modified from P::PF
+
 sub start ( $self, $cb ) {
+    die 'cannot start another process while you are in child process' if $self->{in_child} ;
+
     $self->manager_pid($$) ;
     $self->signal_received('') ;
     $self->{generation}++ ;
 
-    die 'cannot start another process while you are in child process'
-        if $self->{in_child} ;
-
     # main loop
     while ( !$self->signal_received ) {
-        my $action = $self->{_no_adjust_until} <= Time::HiRes::time()
-            && $self->_decide_action ;
+        my $action = $self->{_no_adjust_until} <= Time::HiRes::time() && $self->_decide_action ;
+
+        $self->_stop_a_worker if $action < 0 ;
+
         if ( $action > 0 ) {
-
-            # start a new worker
-            if ( my $subref = $self->before_fork ) {
-                $subref->($self) ;
-                }
-
-            my $pipe_p2c = IO::Pipe->new ;
-            my $pipe_c2p = IO::Pipe->new ;
-
-            my $pid = fork ;
-
-            unless ( defined $pid ) {
-                warn "fork failed:$!" ;
-                $self->_update_spawn_delay( $self->err_respawn_interval ) ;
-                next ;
-                }
-
-            unless ($pid) {
-
-                # child process
-                $pipe_p2c->reader ;
-                $pipe_c2p->writer ;
-                $self->{worker_pids}->{$$}->{pipes}->{p2c} = $pipe_p2c ;
-                $self->{worker_pids}->{$$}->{pipes}->{c2p} = $pipe_c2p ;
-
-                $self->{in_child} = 1 ;
-                $SIG{$_}          = 'DEFAULT' for keys %{ $self->trap_signals } ;
-                $SIG{CHLD}        = 'DEFAULT' ;                                     # revert to original
-                exit 0 if $self->signal_received ;
-                if ($cb) {
-                    $cb->() ;
-                    $self->finish() ;
-                    }
-                return ;
-                }
-
-            # back in parent
-            $pipe_p2c->writer ;
-            $pipe_c2p->reader ;
-            $self->{worker_pids}->{$pid}->{pipes}->{p2c} = $pipe_p2c ;
-            $self->{worker_pids}->{$pid}->{pipes}->{c2p} = $pipe_c2p ;
-
-            if ( my $subref = $self->after_fork ) {
-                $subref->( $self, $pid ) ;
-                }
-
-            $self->{worker_pids}{$pid}{generation} = $self->{generation} ;
-            $self->_update_spawn_delay( $self->spawn_interval ) ;
+            my $pid = $self->_start_worker($cb) ;
+            next   unless defined $pid ;    # fork failed
+            return unless $pid ;            # return from child process
             }
-        elsif ( $action < 0 ) {
 
-            # stop an existing worker
-            kill( $self->_action_for('TERM')->[0], ( keys %{ $self->{worker_pids} } )[0], ) ;
-            $self->_update_spawn_delay( $self->spawn_interval ) ;
-            }
+        # continue in parent process
 
         $self->{__dbg_callback}->() if $self->{__dbg_callback} ;
 
         $self->_handle_callbacks ;
 
-        if ( my ( $exit_pid, $status ) = $self->_wait( !$self->{__dbg_callback} && $action <= 0 ) ) {
-            $self->_on_child_reap( $exit_pid, $status, $self->{worker_pids}{$exit_pid}{final_payload} ) ;
-            if ( $self->{worker_pids}{$exit_pid}{generation} == $self->{generation} and $status != 0 ) {
-                delete( $self->{worker_pids}{$exit_pid} ) ;
-                $self->_update_spawn_delay( $self->err_respawn_interval ) ;
-                }
-            }
+        $self->_reap_a_finished_worker($action) ;
         }
 
-    # send signals to workers
-    if ( my $action = $self->_action_for( $self->signal_received ) ) {
-        my ( $sig, $interval ) = @$action ;
-        if ($interval) {
-
-            # fortunately we are the only one using delayed_task, so implement
-            # this setup code idempotent and replace the already-registered
-            # callback (if any)
-            my @pids = sort keys %{ $self->{worker_pids} } ;
-            $self->{delayed_task} = sub {
-                my $self = shift ;
-                my $pid  = shift @pids ;
-                kill $sig, $pid ;
-                if ( @pids == 0 ) {
-                    delete $self->{delayed_task} ;
-                    delete $self->{delayed_task_at} ;
-                    }
-                else {
-                    $self->{delayed_task_at} = Time::HiRes::time() + $interval ;
-                    }
-                } ;
-            $self->{delayed_task_at} = 0 ;
-            $self->{delayed_task}->($self) ;
-            }
-        else {
-            $self->signal_all_children($sig) ;
-            }
-        }
+    $self->_forward_signal_to_workers ;
 
     1 ;    # return from parent process
+    }
+
+
+sub _forward_signal_to_workers ($self) {
+    my $action = $self->_action_for( $self->signal_received ) ;
+    return unless $action ;
+
+    my ( $sig, $interval ) = @$action ;
+
+    if ( !$interval ) {
+        $self->signal_all_children($sig) ;
+        return ;
+        }
+
+    # fortunately we are the only one using delayed_task, so implement
+    # this setup code idempotent and replace the already-registered
+    # callback (if any)
+    my @pids = sort keys %{ $self->{worker_pids} } ;
+
+    $self->{delayed_task} = sub {
+        my $self = shift ;
+        my $pid  = shift @pids ;
+        kill $sig, $pid ;
+
+        if (@pids) {
+            $self->{delayed_task_at} = Time::HiRes::time() + $interval ;
+            }
+        else {
+            delete $self->{delayed_task} ;
+            delete $self->{delayed_task_at} ;
+            }
+        } ;
+
+    $self->{delayed_task_at} = 0 ;
+    $self->{delayed_task}->($self) ;
+    }
+
+
+sub _start_worker ( $self, $cb ) {
+    $self->before_fork->($self) if $self->before_fork ;
+
+    my ( $pipe_p2c, $pipe_c2p ) = ( IO::Pipe->new, IO::Pipe->new ) ;
+
+    my $pid = fork ;
+
+    return $pid if $self->_fork_failed($pid) ;
+
+    # set up child then either run $cb and exit, or return to continue to finish() and thence exit()
+    return $pid if $self->_setup_new_worker_in_child( $pid, $cb, $pipe_p2c, $pipe_c2p ) ;
+
+    $self->_setup_new_worker_in_parent( $pid, $pipe_p2c, $pipe_c2p ) ;
+    }
+
+
+sub _reap_a_finished_worker ( $self, $action ) {
+    my ( $exit_pid, $status ) = $self->_wait( !$self->{__dbg_callback} && $action <= 0 ) ;
+
+    return unless $exit_pid ;
+
+    $self->_on_child_reap( $exit_pid, $status, $self->{worker_pids}->{$exit_pid}->{final_payload} ) ;
+
+    if ( $self->{worker_pids}->{$exit_pid}->{generation} == $self->{generation} and $status != 0 ) {
+        delete( $self->{worker_pids}->{$exit_pid} ) ;
+        $self->_update_spawn_delay( $self->err_respawn_interval ) ;
+        }
+    }
+
+
+sub _stop_a_worker ($self) {
+    kill( $self->_action_for('TERM')->[0], ( keys %{ $self->{worker_pids} } )[0], ) ;
+    $self->_update_spawn_delay( $self->spawn_interval ) ;
+    }
+
+
+sub _setup_new_worker_in_parent ( $self, $pid, $pipe_p2c, $pipe_c2p ) {
+    $pipe_p2c->writer ;
+    $pipe_c2p->reader ;
+    $self->{worker_pids}->{$pid}->{pipes}->{p2c} = $pipe_p2c ;
+    $self->{worker_pids}->{$pid}->{pipes}->{c2p} = $pipe_c2p ;
+
+    if ( my $subref = $self->after_fork ) {
+        $subref->( $self, $pid ) ;
+        }
+
+    $self->{worker_pids}->{$pid}->{generation} = $self->{generation} ;
+    $self->_update_spawn_delay( $self->spawn_interval ) ;
+    }
+
+
+sub _setup_new_worker_in_child ( $self, $pid, $cb, $pipe_p2c, $pipe_c2p ) {
+    return 0 if $pid ;    # parent
+
+    # we're in the child
+    $pipe_p2c->reader ;
+    $pipe_c2p->writer ;
+    $self->{worker_pids}->{$$}->{pipes}->{p2c} = $pipe_p2c ;
+    $self->{worker_pids}->{$$}->{pipes}->{c2p} = $pipe_c2p ;
+
+    $self->{in_child} = 1 ;
+    $SIG{$_}          = 'DEFAULT' for keys %{ $self->trap_signals } ;
+    $SIG{CHLD}        = 'DEFAULT' ;                                     # revert to original
+
+    exit 0 if $self->signal_received ;
+
+    if ($cb) {
+        $cb->() ;
+        $self->finish() ;                                               # calls exit()
+        }
+
+    return 1 ;                                                          # will return from start(), call finish(), and thence exit()
+    }
+
+
+sub _fork_failed ( $self, $pid ) {
+    return if defined $pid ;
+
+    warn "fork failed:$!" ;
+    $self->_update_spawn_delay( $self->err_respawn_interval ) ;
+    return 1 ;
     }
 
 # modified from P::PF

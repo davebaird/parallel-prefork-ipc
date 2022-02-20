@@ -219,3 +219,7 @@ needs, until I needed callbacks.
 - Ability to add jobs to the queue while the main loop is running
 
     `Parallel::Prefork`
+
+### Read more
+
+Apart from the docs for `Parallel::Prefork`, there's a useful blog here: https://perl-users.jp/articles/advent-calendar/2010/english/4
