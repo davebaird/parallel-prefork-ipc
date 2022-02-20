@@ -168,7 +168,7 @@ but I haven't got my head round that world yet.
 Basically, `Parallel::ForkManager` and `Parallel::Prefork` supported all my
 needs, until I needed callbacks.
 
-## Features of `Parallel::Prefork::IPC`
+## FEATURES
 
 (and where I stole the implementation from):
 
