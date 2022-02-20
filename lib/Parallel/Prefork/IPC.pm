@@ -190,7 +190,7 @@ but I haven't got my head round that world yet.
 Basically, C<Parallel::ForkManager> and C<Parallel::Prefork> supported all my
 needs, until I needed callbacks.
 
-=head3 Features of C<Parallel::Prefork::IPC>
+=head2 Features of C<Parallel::Prefork::IPC>
 
 (and where I stole the implementation from):
 
