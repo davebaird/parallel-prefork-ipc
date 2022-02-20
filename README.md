@@ -131,7 +131,8 @@ Empty/missing payloads are fine:
     $ppi->callback( $method_name ) ;
 
 `$payload` can be a string, or a reference. The payload will be encoded as JSON
-before sending, and decoded from JSON in the parent.
+before sending, and decoded from JSON in the parent. Ditto for any
+data sent back to the child.
 
 ## RATIONALE
 
