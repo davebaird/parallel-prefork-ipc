@@ -97,6 +97,18 @@
             }
         }
 
+# DESCRIPTION
+
+Inherits from `Parallel::Prefork`. The docs here focus on the additional IPC/callbacks features.
+
+# IPC
+
+Bi-directional communication between each child and the parent process is implemented via
+a pair of pipes. This is wrapped in the callback mechanism, so the main thing to
+be aware of is that all messages are serialized/deserialized as JSON strings.
+Any data you send must be a single scalar (number, string, or reference) and must be
+serializable to JSON.
+
 ## Callbacks
 
 The `callbacks` accessor holds a hashref mapping callback method names to coderefs:
@@ -106,7 +118,7 @@ The `callbacks` accessor holds a hashref mapping callback method names to codere
         ...
     }
 
-Coderefs are called with the parent object, the child PID and the payload sent from the child:
+Callbacks are passed the parent object, the child PID and the payload sent from the child:
 
     $coderef->($self, $kidpid, $payload) ;
 
@@ -128,36 +140,39 @@ Does Perl really need yet another parallel process manager? I think so.
 As far as I can see, all the available options have something going for them, but
 none seem to have everything.
 
-Parallel::ForkManager is great, but doesn't offer graceful shutdown, reloading
-config, or a callback mechanism/IPC.
+`Parallel::ForkManager` is great, but doesn't offer graceful signal handling, reloading
+config, or a callback mechanism (although it does return a data structure from each child).
 
-Parallel::PreFork offers graceful signal handling and reloadable config, but doesn't
+`Parallel::PreFork` offers graceful signal handling and reloadable config, but doesn't
 return data from children, is awkward to supply job-specific arguments to each child,
 and has no IPC.
 
-Proc::Fork is lovely, and I stole the IPC from there, but you'd have to roll your own
+`Proc::Fork` is lovely, and I stole the IPC from there, but you'd have to roll your own
 multi-process management on top of it.
 
-Parallel::Loops is lovely, but no IPC.
+`Parallel::Loops` is also lovely, but no IPC.
 
-Parallel::PreforkManager almost has it all, BUT you have to set up all the jobs
+`Parallel::PreforkManager` almost has it all, BUT you have to set up all the jobs
 beforehand and then hand off to the main loop, you can't run it in a while()
 loop and keep adding new jobs. I stole the callback mechanism from there.
 
-Parallel::Runner has everything except an explicit callback mechanism. However, it
+`Parallel::Runner` has everything except an explicit callback mechanism. However, it
 does have `iteration_callback` which can probably be used to build such a thing
 easily enough. Also, although it does pass data back to the parent, you have to
 handle serialization yourself for anything more than simple strings.
 
-So, features of Parallel::Prefork::IPC (and where I stole the implementation from)
+### Features of `Parallel::Prefork::IPC`
 
-\- responds gracefully (and customizably) to signals                 \[Parallel::Prefork\]
-\- can reload config data                                            \[Parallel::Prefork\]
-\- configurable max children                                         \[Parallel::Prefork\]
-\- timeout on final wait\_all\_children                                \[Parallel::Prefork\]
-\- timeout on individual children                                    left for users to write according to their own needs, Time::Out is very handy
-\- callback mechanism                                                \[Parallel::PreforkManager\]
-\- passing final data payload back to parent                         several libraries do this, the implementation used here is built on top of the callback mechanism
-\- IPC                                                               \[Proc::Fork\] - a pair of pipes shared between each child and the parent. The details
+(and where I stole the implementation from):
+
+\- responds gracefully (and customizably) to signals     \[Parallel::Prefork\]
+\- can reload config data                                \[Parallel::Prefork\]
+\- configurable max children                             \[Parallel::Prefork\]
+\- timeout on final wait\_all\_children                    \[Parallel::Prefork\]
+\- timeout on individual children                        left for users to write according to their own needs, Time::Out is very handy
+\- callback mechanism                                    \[Parallel::PreforkManager\]
+\- passing final data payload back to parent             several libraries do this, the implementation used here is built on top of the callback mechanism
+\- IPC                                                   \[Proc::Fork\] - a pair of pipes shared between each child and the parent. The details
                                                                         are wrapped in the callback mechanism.
-\- ability to add jobs to the queue while the main loop is running   \[Parallel::Prefork\]
+\- ability to add jobs to the queue while the main       \[Parallel::Prefork\]
+    loop is running
