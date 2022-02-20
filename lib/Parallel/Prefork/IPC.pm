@@ -172,16 +172,23 @@ and has no IPC.
 C<Proc::Fork> is lovely, and I stole the IPC from there, but you'd have to roll your own
 multi-process management on top of it.
 
-C<Parallel::Loops> is also lovely, but no IPC.
+C<Parallel::Loops> is also lovely, accepts per-child initialisation data,
+returns final output to the parent, but no callbacks.
 
 C<Parallel::PreforkManager> almost has it all, BUT you have to set up all the jobs
-beforehand and then hand off to the main loop, you can't run it in a while()
+beforehand and then hand off to the main loop, AFAIK you can't run it in a while()
 loop and keep adding new jobs. I stole the callback mechanism from there.
 
 C<Parallel::Runner> has everything except an explicit callback mechanism. However, it
 does have C<iteration_callback> which can probably be used to build such a thing
 easily enough. Also, although it does pass data back to the parent, you have to
 handle serialization yourself for anything more than simple strings.
+
+There are other options on CPAN as well, especially in the world of async programming,
+but I haven't got my head round that world yet.
+
+Basically, C<Parallel::ForkManager> and C<Parallel::Prefork> supported all my
+needs, until I needed callbacks.
 
 =head3 Features of C<Parallel::Prefork::IPC>
 
