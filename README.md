@@ -164,7 +164,7 @@ easily enough. Although it does pass final data back to the parent, you have to
 handle serialization yourself for anything more than simple strings.
 
 There are other options on CPAN as well, especially in the world of async programming,
-but I haven't got my head round that world yet.
+but I haven't got my head round that stuff yet.
 
 Basically, `Parallel::ForkManager` and `Parallel::Prefork` supported all my
 needs, until I needed callbacks.
