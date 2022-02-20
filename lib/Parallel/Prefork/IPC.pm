@@ -107,11 +107,14 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
             my $userdata = $final_payload->{data} ;
             store_somewhere( $DBH, $username => $userdata ) ;
             }
+        elsif ( $status == $E_NO_USERNAME ) {
+            warn "Child $kidpid: no username found" ;
+            }
         elsif ( $status == $E_NO_DATA ) {
             warn "Child $kidpid: No data retrieved for " . $final_payload->{username} ;
             }
         else {
-            warn "Problem with $kidpid (exit: $status) - got payload: " . Dumper($final_payload) ;
+            warn "Child $kidpid: unexpected problem (exit: $status) - got payload: " . Dumper($final_payload) ;
             }
         }
 
