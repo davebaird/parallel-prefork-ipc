@@ -30,6 +30,13 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
     use feature qw(signatures) ;
     no warnings qw(experimental::signatures) ;
 
+    my $DBH ;
+    my $E_OK          = 0 ;
+    my $E_GENERIC     = 1 ;
+    my $E_NO_USERNAME = 5 ;
+    my $E_NO_DATA     = 6 ;
+
+
     my $ppi = Parallel::Prefork::IPC->new(
         {   max_workers => 5,
 
@@ -49,8 +56,6 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
                 }
         ) ;
 
-    my $DBH ;
-
     while ( $ppi->signal_received !~ /^(TERM|INT)$/ ) {
 
         # Sending a USR1 to the parent process, or calling $ppi->signal_received
@@ -69,7 +74,7 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
 
         if ( !$username ) {
             warn "No username received" ;
-            $ppi->finish ;
+            $ppi->finish($E_NO_USERNAME) ;
             }
 
         $ppi->callback( log_child_event => { name => 'got username', note => $username } ) ;
@@ -78,7 +83,7 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
 
         $ppi->callback( log_child_event => { name => 'finished work', note => $username } ) ;
 
-        my $exit = $data ? 0 : 1 ;
+        my $exit = $data ? $E_OK : $E_NO_DATA ;
 
         $ppi->finish( $exit, { username => $username, data => $data } ) ;
         }
@@ -95,10 +100,13 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
 
 
     sub worker_finished ( $ppi, $kidpid, $status, $final_payload ) {
-        if ( $status == 0 ) {
+        if ( $status == $E_OK ) {
             my $username = $final_payload->{username} ;
             my $userdata = $final_payload->{data} ;
             store_somewhere( $DBH, $username => $userdata ) ;
+            }
+        elsif ( $status == $E_NO_DATA ) {
+            warn "Child $kidpid: No data retrieved for " . $final_payload->{username} ;
             }
         else {
             warn "Problem with $kidpid (exit: $status) - got payload: " . Dumper($final_payload) ;
