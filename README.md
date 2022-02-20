@@ -172,38 +172,38 @@ needs, until I needed callbacks.
 
 (and where I stole the implementation from):
 
-- responds gracefully (and customizably) to signals
+- Responds gracefully (and customizably) to signals
 
-    \[Parallel::Prefork\]
+    `Parallel::Prefork`
 
-- can reload config data
+- Can reload config data
 
-    \[Parallel::Prefork\]
+    `Parallel::Prefork`
 
-- configurable max children
+- Configurable max children
 
-    \[Parallel::Prefork\]
+    `Parallel::Prefork`
 
-- timeout on final wait\_all\_children
+- Timeout on final `wait_all_children`
 
-    \[Parallel::Prefork\]
+    `Parallel::Prefork`
 
-- timeout on individual children
+- Timeout on individual children
 
-    left for users to write according to their own needs, Time::Out is very handy
+    Left for users to write according to their own needs, `Time::Out` is very handy
 
-- callback mechanism
+- Callback mechanism
 
-    \[Parallel::PreforkManager\]
+    `Parallel::PreforkManager`
 
-- passing final data payload back to parent
+- Pass final data payload back to parent
 
-    several libraries do this, the implementation used here is built on top of the callback mechanism
+    Several packages do this, the implementation used here is built on top of the callback mechanism
 
 - IPC
 
-    \[Proc::Fork\] - a pair of pipes shared between each child and the parent. The details are wrapped in the callback mechanism.
+    `Proc::Fork` - a pair of pipes shared between each child and the parent. The details are wrapped in the callback mechanism.
 
-- ability to add jobs to the queue while the main loop is running
+- Ability to add jobs to the queue while the main loop is running
 
-    \[Parallel::Prefork\]
+    `Parallel::Prefork`

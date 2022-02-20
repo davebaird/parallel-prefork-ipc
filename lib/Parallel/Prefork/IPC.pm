@@ -196,41 +196,41 @@ needs, until I needed callbacks.
 
 =over 4
 
-=item responds gracefully (and customizably) to signals
+=item Responds gracefully (and customizably) to signals
 
-[Parallel::Prefork]
+C<Parallel::Prefork>
 
-=item can reload config data
+=item Can reload config data
 
-[Parallel::Prefork]
+C<Parallel::Prefork>
 
-=item configurable max children
+=item Configurable max children
 
-[Parallel::Prefork]
+C<Parallel::Prefork>
 
-=item timeout on final wait_all_children
+=item Timeout on final C<wait_all_children>
 
-[Parallel::Prefork]
+C<Parallel::Prefork>
 
-=item timeout on individual children
+=item Timeout on individual children
 
-left for users to write according to their own needs, Time::Out is very handy
+Left for users to write according to their own needs, C<Time::Out> is very handy
 
-=item callback mechanism
+=item Callback mechanism
 
-[Parallel::PreforkManager]
+C<Parallel::PreforkManager>
 
-=item passing final data payload back to parent
+=item Pass final data payload back to parent
 
-several libraries do this, the implementation used here is built on top of the callback mechanism
+Several packages do this, the implementation used here is built on top of the callback mechanism
 
 =item IPC
 
-[Proc::Fork] - a pair of pipes shared between each child and the parent. The details are wrapped in the callback mechanism.
+C<Proc::Fork> - a pair of pipes shared between each child and the parent. The details are wrapped in the callback mechanism.
 
-=item ability to add jobs to the queue while the main loop is running
+=item Ability to add jobs to the queue while the main loop is running
 
-[Parallel::Prefork]
+C<Parallel::Prefork>
 
 
 =back
