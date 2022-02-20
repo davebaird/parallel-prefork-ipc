@@ -19,6 +19,94 @@ no warnings qw(experimental::signatures) ;
 
 =pod
 
+=head1 NAME
+
+C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
+
+=head1 SYNOPSIS
+
+    use Parallel::Prefork::IPC ;
+
+    use feature qw(signatures) ;
+    no warnings qw(experimental::signatures) ;
+
+    my $ppi = Parallel::Prefork::IPC->new(
+        {   max_workers => 5,
+
+            on_child_reap => \&worker_finished,
+
+            callbacks => {
+                get_username    => \&get_username,
+                log_child_event => \&log_child_event,
+                },
+
+            trap_signals => {
+                TERM => 'TERM',
+                HUP  => 'TERM',
+                INT  => 'INT',
+                USR1 => undef,
+                }
+                }
+        ) ;
+
+    my $DBH ;
+
+    while ( $ppi->signal_received !~ /^(TERM|INT)$/ ) {
+
+        # Sending a USR1 to the parent process, or calling $ppi->signal_received
+        # (note: with no args) in the parent, will cause the connection to be renewed,
+        # potentially with a new config. DB handles are not reliable across forks,
+        # so the idea is to only use this object in the parent, and any time a child
+        # needs to speak to the database, that can be done through a callback.
+        $DBH = connect_to_db() ;
+
+        $ppi->start and next ;
+
+        # in child
+
+        my $username = $ppi->callback('get_username') ;
+        chomp $username ;
+
+        if ( !$username ) {
+            warn "No username received" ;
+            $ppi->finish ;
+            }
+
+        $ppi->callback( log_child_event => { name => 'got username', note => $username } ) ;
+
+        my $data = do_work_with($username) ;
+
+        $ppi->callback( log_child_event => { name => 'finished work', note => $username } ) ;
+
+        my $exit = $data ? 0 : 1 ;
+
+        $ppi->finish( $exit, { username => $username, data => $data } ) ;
+        }
+
+
+    sub get_username ( $ppi, $kidpid ) {
+        return get_next_username_from_database($DBH) ;
+        }
+
+
+    sub log_child_event ( $ppi, $kidpid, $event ) {
+        warn sprintf "Child $kidpid event: %s (%s)\n", $event->{name}, $event->{note} ;
+        }
+
+
+    sub worker_finished ( $ppi, $kidpid, $status, $final_payload ) {
+        if ( $status == 0 ) {
+            my $username = $final_payload->{username} ;
+            my $userdata = $final_payload->{data} ;
+            store_somewhere( $DBH, $username => $userdata ) ;
+            }
+        else {
+            warn "Problem with $kidpid (exit: $status) - got payload: " . Dumper($final_payload) ;
+            }
+        }
+
+=head2 Callbacks
+
 The C<callbacks> accessor holds a hashref mapping callback method names to coderefs:
 
     {
@@ -26,9 +114,9 @@ The C<callbacks> accessor holds a hashref mapping callback method names to coder
         ...
     }
 
-Coderefs are called with the child PID and the payload sent from the child:
+Coderefs are called with the parent object, the child PID and the payload sent from the child:
 
-    $codref->($kidpid, $payload) ;
+    $coderef->($self, $kidpid, $payload) ;
 
 In the child, callbacks are called thusly:
 
@@ -43,7 +131,7 @@ before sending, and decoded from JSON in the parent.
 
 =head2 RATIONALE
 
-Does anyone really need yet another parallel process manager? I think so.
+Does Perl really need yet another parallel process manager? I think so.
 
 As far as I can see, all the available options have something going for them, but
 none seem to have everything.
@@ -94,7 +182,7 @@ KID:
 
             if ( $message->{method} eq 'callback' ) {
                 my $parent_payload
-                    = $self->callbacks->{ $message->{callback_method} }->( $kidpid, $message->{child_payload} ) ;
+                    = $self->callbacks->{ $message->{callback_method} }->( $self, $kidpid, $message->{child_payload} ) ;
                 $self->_send( { parent_payload => $parent_payload }, $kidpid ) ;
                 }
             elsif ( $message->{method} eq '__finish__' ) {
