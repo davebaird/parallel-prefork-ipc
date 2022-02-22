@@ -69,7 +69,8 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
         #       hook might be useful, or else a callback from the child,
         #       as shown here.
 
-        # Note: also bear in mind that more kids than necessary are likely to be
+        # Note: for jobs processing (as opposed to server instances) bear in
+        #       mind that more kids than necessary are likely to be
         #       started, so each kid should check it has received appropriate
         #       initialisation data and if not, call finish() or if running as
         #       a callback, return.
