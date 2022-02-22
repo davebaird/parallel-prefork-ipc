@@ -26,11 +26,15 @@ my $pm = Parallel::Prefork::IPC->new(
 while ( $pm->signal_received ne 'TERM' ) {
     $pm->start and next ;
 
-    kill( TERM => $pm->manager_pid ) if $i == 11 ;    # the last payload ($i == 11) doesn't get through
+    $pm->finish if $i > 11 ;
 
-    my $payload = $i > 10 ? 0 : $i**2 ;
+    if ( $i == 11 ) {
+        sleep 1 ;                             # let the kids send their callbacks before shutting down
+        kill( TERM => $pm->manager_pid ) ;    # the last payload ($i == 11) doesn't get through
+        $pm->finish ;
+        }
 
-    $pm->finish( 0, $payload ) ;
+    $pm->finish( 0, $i**2 ) ;
     }
 
 $pm->wait_all_children ;
