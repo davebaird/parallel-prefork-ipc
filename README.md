@@ -47,8 +47,7 @@
         # Note: for jobs processing (as opposed to server instances) bear in
         #       mind that more kids than necessary are likely to be
         #       started, so each kid should check it has received appropriate
-        #       initialisation data and if not, call finish() or if running as
-        #       a callback, return.
+        #       initialisation data and if not, call finish() or return.
 
         # Sending a USR1 to the parent process, or calling $ppi->signal_received
         # (note: with no args) in the parent, will cause the connection to be renewed,
