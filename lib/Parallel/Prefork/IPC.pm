@@ -5,10 +5,13 @@ use v5.24 ;    # for postfix dereferencing etc.
 use strict ;
 use warnings ;
 use Carp ;
+use Data::Dumper ;
 
 use IO::Pipe ;
 use Feature::Compat::Try ;
 use JSON ;
+
+use constant BLOCK => 1 ;
 
 use base 'Parallel::Prefork' ;
 
@@ -336,6 +339,8 @@ sub _handle_callbacks ($self) {
     foreach my $kidpid ( keys $self->{worker_pids}->%* ) {
         my $message = $self->_receive($kidpid) || next ;
 
+        # warn "_handle_callbacks: received message:" . Dumper($message) ;
+
         my $parent_payload ;
 
         try {
@@ -354,13 +359,14 @@ sub _handle_callbacks ($self) {
 sub _handle_callback ( $self, $kidpid, $message ) {
     my $cb_name = $message->{callback_method} ;
 
-    my $cb = $self->callbacks->{$cb_name} || die "Unknown callback method '$cb_name' called by $kidpid" ;
+    my $cb = $self->callbacks->{$cb_name}
+        || die "Unknown callback method '$cb_name' called by $kidpid: DATA: " . Dumper($message) ;
 
     $cb->( $self, $kidpid, $message->{child_payload} ) ;
     }
 
 # in child
-sub callback ( $self, $method, $data = {} ) {
+sub callback ( $self, $method, $data = undef ) {
     $self->{in_child} || croak "callback('$method') only available in child" ;
 
     $self->_send(
@@ -369,12 +375,16 @@ sub callback ( $self, $method, $data = {} ) {
             }
         ) ;
 
-    $self->_receive->{parent_payload} ;
+    $self->_receive( $$, BLOCK )->{parent_payload} ;
     }
 
 
 sub _send ( $self, $hashref, $kidpid = $$ ) {
     !$self->{in_child} and $kidpid == $$ and croak "Must supply target worker PID when sending from parent" ;
+
+    my $pc = $self->{in_child} ? ' child' : 'parent' ;
+
+    # warn "$$ $pc: sending: " . Dumper($hashref) ;
 
     my $pipe
         = $self->{in_child}
@@ -391,7 +401,7 @@ sub _send ( $self, $hashref, $kidpid = $$ ) {
     }
 
 
-sub _receive ( $self, $kidpid = $$ ) {
+sub _receive ( $self, $kidpid = $$, $block = 0 ) {
     !$self->{in_child} and $kidpid == $$ and croak "Must supply target worker PID when receiving in parent" ;
 
     my $pipe
@@ -399,10 +409,20 @@ sub _receive ( $self, $kidpid = $$ ) {
         ? $self->{ipc}->{$kidpid}->{pipes}->{p2c}
         : $self->{ipc}->{$kidpid}->{pipes}->{c2p} ;
 
-    # my $line = $pipe->getline || return ;
-    my ($line) = _read_lines_nb($pipe) ;
+    my $line ;
+
+    if ($block) {
+        $line = $pipe->getline ;
+        }
+    else {
+        ($line) = _read_lines_nb($pipe) ;
+        }
+
+    chomp($line) if $line ;
+
     return unless $line ;
-    chomp $line ;
+
+    # warn "Received: $line" ;
 
     my $message = eval { decode_json($line)  } ;
     warn "Error decoding line: $@" if $@ ;
