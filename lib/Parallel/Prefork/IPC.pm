@@ -79,6 +79,7 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
         # potentially with a new config. DB handles are not reliable across forks,
         # so the idea is to only use this object in the parent, and any time a child
         # needs to speak to the database, that can be done through a callback.
+
         $DBH = connect_to_db() ;
 
         $ppi->start and next ;
