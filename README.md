@@ -9,7 +9,7 @@
     use feature qw(signatures) ;
     no warnings qw(experimental::signatures) ;
 
-    my $DBH ;
+    my $CFG ;
     my $TIMEOUT       = 30 ;
     my $GOT_USERNAMES = 1 ;
     my $E_OK          = 0 ;
@@ -49,19 +49,11 @@
         #       started, so each kid should check it has received appropriate
         #       initialisation data and if not, call finish() or return.
 
-        # Sending a USR1 to the parent process, or calling $ppi->signal_received
-        # (note: with no args) in the parent, will cause the connection to be renewed,
-        # potentially with a new config. DB handles are not reliable across forks,
-        # so the idea is to only use this object in the parent, and any time a child
-        # needs to speak to the database, that can be done through a callback.
-
-        $DBH = connect_to_db() ;
+        $CFG = get_config() ;
 
         $ppi->start and next ;
 
         # in child
-
-        undef $DBH ;    # just in case
 
         my $username = $ppi->callback('get_username') ;
         chomp $username ;
