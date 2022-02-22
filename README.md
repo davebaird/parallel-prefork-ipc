@@ -6,6 +6,7 @@
 
     use Parallel::Prefork::IPC ;
 
+    use Data::Dumper ;
     use feature qw(signatures) ;
     no warnings qw(experimental::signatures) ;
 
@@ -13,7 +14,6 @@
     my $TIMEOUT       = 30 ;
     my $GOT_USERNAMES = 1 ;
     my $E_OK          = 0 ;
-    my $E_GENERIC     = 1 ;
     my $E_NO_USERNAME = 5 ;
     my $E_NO_DATA     = 6 ;
 
@@ -56,12 +56,8 @@
         # in child
 
         my $username = $ppi->callback('get_username') ;
-        chomp $username ;
 
-        if ( !$username ) {
-            warn "No username received" ;
-            $ppi->finish($E_NO_USERNAME) ;
-            }
+        $ppi->finish($E_NO_USERNAME) unless $username ;
 
         $ppi->callback( log_child_event => { name => 'got username', note => $username } ) ;
 
@@ -78,7 +74,7 @@
 
 
     sub get_username ( $ppi, $kidpid ) {
-        my $un = get_next_username_from_database($DBH) ;
+        my $un = get_next_username_from_somewhere() ;
         $GOT_USERNAMES = 0 unless $un ;
         return $un ;
         }
@@ -93,13 +89,13 @@
         if ( $status == $E_OK ) {
             my $username = $final_payload->{username} ;
             my $userdata = $final_payload->{data} ;
-            store_somewhere( $DBH, $username => $userdata ) ;
+            store_somewhere( $username => $userdata ) ;
             }
         elsif ( $status == $E_NO_USERNAME ) {
-            warn "Child $kidpid: no username found" ;
+            warn "Child $kidpid: no username received" ;
             }
         elsif ( $status == $E_NO_DATA ) {
-            warn "Child $kidpid: No data retrieved for " . $final_payload->{username} ;
+            warn "Child $kidpid: no data retrieved for " . $final_payload->{username} ;
             }
         else {
             warn "Child $kidpid: unexpected problem (exit: $status) - got payload: " . Dumper($final_payload) ;
