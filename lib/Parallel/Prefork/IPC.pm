@@ -66,8 +66,13 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
 
         # Note: this while() loop does NOT cycle for every child, so don't be
         #       tempted to set up per-child init data here. The before_fork()
-        #       callback might be useful, or else a callback from the child,
+        #       hook might be useful, or else a callback from the child,
         #       as shown here.
+
+        # Note: also bear in mind that more kids than necessary are likely to be
+        #       started, so each kid should check it has received appropriate
+        #       initialisation data and if not, call finish() or if running as
+        #       a callback, return.
 
         # Sending a USR1 to the parent process, or calling $ppi->signal_received
         # (note: with no args) in the parent, will cause the connection to be renewed,
@@ -140,7 +145,7 @@ Inherits from C<Parallel::Prefork>. The docs here focus on the additional IPC/ca
 =head1 IPC
 
 Bi-directional communication between each child and the parent process is implemented via
-a pair of pipes. This is wrapped in the callback mechanism, so the main thing to
+a pair of pipes. This is all wrapped in the callback mechanism, so the main thing to
 be aware of is that all messages are serialized/deserialized as JSON strings before
 being sent across the pipe.
 
@@ -168,9 +173,9 @@ Empty/missing payloads are fine:
 
     $ppi->callback( $method_name ) ;
 
-C<$payload> can be a string, or a reference. The payload will be encoded as JSON
-before sending, and decoded from JSON in the parent. Ditto for any
-data sent back to the child.
+C<$payload> can be not present at all, undef, a string or number, or a reference.
+The payload will be encoded as JSON before sending, and decoded from JSON in the parent.
+Ditto for any data sent back to the child.
 
 =head2 RATIONALE
 
@@ -180,11 +185,13 @@ As far as I can see, all the available options have something going for them, bu
 none seem to have everything.
 
 C<Parallel::ForkManager> is great, but doesn't offer graceful signal handling, reloading
-config, or a callback mechanism (although it does return a data structure from each child).
+config, or a callback mechanism. It does return a data structure from each child,
+via a file, using C<Storable> for serializing. That works fine even if it feels
+a little clunky. IMHO.
 
 C<Parallel::PreFork> offers graceful signal handling and reloadable config, but doesn't
-return data from children, is awkward to supply job-specific arguments to each child,
-and has no IPC.
+return data from children, is a little awkward to supply job-specific arguments to each child
+(you set variables up in the parent in the C<before_fork> hook), and has no IPC.
 
 C<Proc::Fork> is lovely, and I stole the IPC from there, but you'd have to roll your own
 multi-process management on top of it.
