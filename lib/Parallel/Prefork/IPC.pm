@@ -10,12 +10,13 @@ use Data::Dumper ;
 use IO::Pipe ;
 use Feature::Compat::Try ;
 use JSON ;
+use Time::Out qw(timeout) ;
 
 use constant BLOCK => 1 ;
 
 use base 'Parallel::Prefork' ;
 
-__PACKAGE__->mk_accessors(qw/callbacks/) ;
+__PACKAGE__->mk_accessors(qw/callbacks callback_timeout/) ;
 
 use feature qw(signatures) ;
 
@@ -52,6 +53,8 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
                 get_username    => \&get_username,
                 log_child_event => \&log_child_event,
                 },
+
+            callback_timeout => 10,
 
             trap_signals => {
                 TERM => 'TERM',
@@ -166,6 +169,10 @@ C<$payload> can be not present at all, undef, a string or number, or a reference
 The payload will be encoded as JSON before sending, and decoded from JSON in the parent.
 Ditto for any data sent back to the child.
 
+=head3 C<callback_timeout>
+
+You can optionally specify a timeout (in seconds) for callbacks. Default is no timeout.
+
 =head2 RATIONALE
 
 Does Perl really need yet another parallel process manager? I think so.
@@ -256,12 +263,11 @@ Apart from the docs for C<Parallel::Prefork>, there's a useful blog here: https:
 
 
 sub new {
-    my $klass = shift ;
-    my $self  = $klass->SUPER::new(@_) ;
+    my $proto = shift ;
+    my $self  = $proto->SUPER::new(@_) ;
 
     # create new pair of pipes before each fork
     my $before_fork_orig_cb = $self->before_fork ;
-
     $self->before_fork(
         sub {
             my ($self) = @_ ;
@@ -272,15 +278,14 @@ sub new {
 
     # set up pipes in parent
     my $after_fork_orig_cb = $self->after_fork ;
-
     $self->after_fork(
         sub {
-            my ( $self, $pid ) = @_ ;
+            my ( $self, $kidpid ) = @_ ;
             my $pipes = delete $self->{_temp_store_pipes} ;
             $pipes->{p2c}->writer ;
             $pipes->{c2p}->reader ;
-            $self->{ipc}->{$pid}->{pipes} = $pipes ;
-            $after_fork_orig_cb && $after_fork_orig_cb->( $self, $pid ) ;
+            $self->{ipc}->{$kidpid}->{pipes} = $pipes ;
+            $after_fork_orig_cb && $after_fork_orig_cb->( $self, $kidpid ) ;
             }
             ) ;
 
@@ -291,7 +296,7 @@ sub new {
         $self->{ipc}->{$kidpid}->{final_payload} = $child_payload ;    # this will be picked up in _on_child_reap()
         } ;
 
-    # call _handle_callbacks
+    # call _handle_callbacks by piggy-backing on __dbg_callback
     my $dbg_orig_cb = $self->{__dbg_callback} ;
     $self->{__dbg_callback} = sub {
         $self->_handle_callbacks ;
@@ -327,8 +332,8 @@ sub _on_child_reap ( $self, $exit_pid, $status ) {
     delete $self->{ipc}->{$exit_pid} ;
 
     if ( my $cb = $self->on_child_reap ) {
-        eval { $cb->( $self, $exit_pid, $status, $final_payload ) ; } ;
-        warn "Error processing on_child_reap() callback: $@" if $@ ;
+        eval { $cb->( $self, $exit_pid, $status, $final_payload )  } ;
+        warn "Error processing on_child_reap() callback for child $exit_pid: $@" if $@ ;
         }
     }
 
@@ -340,16 +345,17 @@ sub _handle_callbacks ($self) {
         # warn "_handle_callbacks: received message:" . Dumper($message) ;
 
         my $parent_payload ;
+        my $error ;
 
         try {
             $parent_payload = $self->_handle_callback( $kidpid, $message ) ;
             }
-        catch ($e) {
-            warn "Caught error handling callback for child $kidpid: $e" ;
+        catch ($error) {
+            warn "Caught error handling callback for child $kidpid: $error" ;
             }
 
         # always send something (even undef) back bc child is blocked until receives reply
-        $self->_send( { parent_payload => $parent_payload }, $kidpid ) ;
+        $self->_send( { parent_payload => $parent_payload, error => $error }, $kidpid ) ;
         }
     }
 
@@ -360,7 +366,17 @@ sub _handle_callback ( $self, $kidpid, $message ) {
     my $cb = $self->callbacks->{$cb_name}
         || die "Unknown callback method '$cb_name' called by $kidpid: DATA: " . Dumper($message) ;
 
-    $cb->( $self, $kidpid, $message->{child_payload} ) ;
+    my $parent_payload ;
+
+    if ( my $timeout = $self->callback_timeout ) {
+        $parent_payload = timeout $timeout => sub { $cb->( $self, $kidpid, $message->{child_payload} )  } ;
+        die $@ if $@ ;
+        }
+    else {
+        $parent_payload = $cb->( $self, $kidpid, $message->{child_payload} ) ;
+        }
+
+    return $parent_payload ;
     }
 
 # in child
@@ -373,7 +389,13 @@ sub callback ( $self, $method, $data = undef ) {
             }
         ) ;
 
-    $self->_receive( $$, BLOCK )->{parent_payload} ;
+    my $reply = $self->_receive( $$, BLOCK ) ;
+
+    croak "Callback error: " . $reply->{error} if $reply->{error} ;
+
+    return $reply->{parent_payload} if $reply ;    # if manager is killed some kids will not get a reply
+
+    return ;
     }
 
 
@@ -407,14 +429,7 @@ sub _receive ( $self, $kidpid = $$, $block = 0 ) {
         ? $self->{ipc}->{$kidpid}->{pipes}->{p2c}
         : $self->{ipc}->{$kidpid}->{pipes}->{c2p} ;
 
-    my $line ;
-
-    if ($block) {
-        $line = $pipe->getline ;
-        }
-    else {
-        ($line) = _read_lines_nb($pipe) ;
-        }
+    my ($line) = $block ? ($pipe->getline) : _read_lines_nb($pipe) ;
 
     chomp($line) if $line ;
 
@@ -458,6 +473,5 @@ sub _read_lines_nb ($fh) {
     return split( /\n/, $buf ) if $buf ;
     return ;
     }
-
 
 1 ;

@@ -7,7 +7,8 @@ use Test::More ;
 use Test::SharedFork ;
 use Parallel::Prefork::IPC ;
 
-my ( $sum, $i, $empty, $undefs, $refs, $str, $refs2 ) = ( 0, 0, 0, 0, {}, '', {} ) ;
+my ( $sum, $i, $empty, $undefs, $refs, $refs2 ) = ( 0, 0, 0, 0, {}, {} ) ;
+my @str_back ;
 
 my $pm = Parallel::Prefork::IPC->new(
     {   max_workers  => 3,
@@ -39,7 +40,7 @@ my $pm = Parallel::Prefork::IPC->new(
             },
             send_str => sub {
                 my ( undef, undef, $payload ) = @_ ;
-                $str .= reverse $payload ;
+                push @str_back, $payload ;
             },
 
             get_ref => sub {
@@ -73,7 +74,7 @@ while ( $pm->signal_received ne 'TERM' ) {
         $pm->callback( 'ref_payload',   $data_ref ) ;
 
         my $str = $pm->callback('get_str') ;
-        $pm->callback( 'send_str', reverse $str ) ;
+        $pm->callback( 'send_str', $str . 'foo' ) ;
 
         my $ref = $pm->callback('get_ref') ;
         $pm->callback( 'send_ref', $ref ) ;
@@ -84,11 +85,15 @@ while ( $pm->signal_received ne 'TERM' ) {
 
 $pm->wait_all_children ;
 
-cmp_ok( $i,      '>=', 10,                                        'before_fork callback was called 10 times or more' ) ;
-cmp_ok( $sum,    '==', 385,                                       'payloads were delivered' ) ;
-cmp_ok( $empty,  '==', 10,                                        '10 empty payloads' ) ;
-cmp_ok( $undefs, '==', 10,                                        '10 undef payloads' ) ;
-cmp_ok( $str,    'eq', 'enoowteerhtruofevifxisnevesthgieeninnet', 'received data' ) ;
+cmp_ok( $i,      '>=', 10,  'before_fork callback was called 10 times or more' ) ;
+cmp_ok( $sum,    '==', 385, 'payloads were delivered' ) ;
+cmp_ok( $empty,  '==', 10,  '10 empty payloads' ) ;
+cmp_ok( $undefs, '==', 10,  '10 undef payloads' ) ;
+
+# cmp_ok( $str,    'eq', 'enoowteerhtruofevifxisnevesthgieeninnet', 'received data' ) ;
+is_deeply( [ sort @str_back ],
+        [ sort map { $_ . 'foo' } qw(one two three four five six seven eight nine ten) ],
+        'received str payloads' ) ;
 
 my %expected_refs = map { $_ => { foo => 'bar', baz => undef, and => [ i => $_ ] } } 1 .. 10 ;
 
