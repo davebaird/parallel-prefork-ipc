@@ -342,9 +342,6 @@ sub _handle_callbacks ($self) {
     foreach my $kidpid ( keys $self->{worker_pids}->%* ) {
         my $message = $self->_receive($kidpid) || next ;
 
-        # warn "_handle_callbacks: received message:" . Dumper($message) ;
-
-        my $parent_payload ;
         my $msg = {} ;
 
         try {
@@ -352,7 +349,6 @@ sub _handle_callbacks ($self) {
             }
         catch ($e) {
             $msg->{error} = $e ;
-            # warn "Caught error handling callback for child $kidpid: $e" ;
             }
 
         # always send something (even undef) back bc child is blocked until receives reply
@@ -404,8 +400,6 @@ sub _send ( $self, $hashref, $kidpid = $$ ) {
     !$self->{in_child} and $kidpid == $$ and croak "Must supply target worker PID when sending from parent" ;
 
     my $pc = $self->{in_child} ? ' child' : 'parent' ;
-
-    # warn "$$ $pc: sending: " . Dumper($hashref) ;
 
     my $pipe
         = $self->{in_child}

@@ -28,6 +28,8 @@
                 log_child_event => \&log_child_event,
                 },
 
+            callback_timeout => 10,
+
             trap_signals => {
                 TERM => 'TERM',
                 HUP  => 'TERM',
@@ -140,6 +142,10 @@ Empty/missing payloads are fine:
 `$payload` can be not present at all, undef, a string or number, or a reference.
 The payload will be encoded as JSON before sending, and decoded from JSON in the parent.
 Ditto for any data sent back to the child.
+
+### `callback_timeout`
+
+You can optionally specify a timeout (in seconds) for callbacks. Default is no timeout.
 
 ## RATIONALE
 
