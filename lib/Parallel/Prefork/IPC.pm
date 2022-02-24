@@ -345,17 +345,18 @@ sub _handle_callbacks ($self) {
         # warn "_handle_callbacks: received message:" . Dumper($message) ;
 
         my $parent_payload ;
-        my $error ;
+        my $msg = {} ;
 
         try {
-            $parent_payload = $self->_handle_callback( $kidpid, $message ) ;
+            $msg->{parent_payload} = $self->_handle_callback( $kidpid, $message ) ;
             }
-        catch ($error) {
-            warn "Caught error handling callback for child $kidpid: $error" ;
+        catch ($e) {
+            $msg->{error} = $e ;
+            # warn "Caught error handling callback for child $kidpid: $e" ;
             }
 
         # always send something (even undef) back bc child is blocked until receives reply
-        $self->_send( { parent_payload => $parent_payload, error => $error }, $kidpid ) ;
+        $self->_send( $msg, $kidpid ) ;
         }
     }
 
@@ -429,7 +430,7 @@ sub _receive ( $self, $kidpid = $$, $block = 0 ) {
         ? $self->{ipc}->{$kidpid}->{pipes}->{p2c}
         : $self->{ipc}->{$kidpid}->{pipes}->{c2p} ;
 
-    my ($line) = $block ? ($pipe->getline) : _read_lines_nb($pipe) ;
+    my ($line) = $block ? ( $pipe->getline ) : _read_lines_nb($pipe) ;
 
     chomp($line) if $line ;
 
