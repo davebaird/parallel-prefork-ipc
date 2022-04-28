@@ -42,14 +42,17 @@
     while ( $GOT_USERNAMES and $ppi->signal_received !~ /^(TERM|INT)$/ ) {
 
         # Note: this while() loop does NOT cycle for every child, so don't be
-        #       tempted to set up per-child init data here. The before_fork()
-        #       hook might be useful, or else a callback from the child,
-        #       as shown here.
+        #       tempted to set up per-child init data here. Use the before_fork()
+        #       hook, or else a callback from the child, as shown here.
 
         # Note: for jobs processing (as opposed to server instances) bear in
         #       mind that more kids than necessary are likely to be
         #       started, so each kid should check it has received appropriate
         #       initialisation data and if not, call finish() or return.
+        #       If individual jobs are long-running, but there may be fewer than
+        #       max_workers, it might be worth introducing a delay or some other
+        #       check in the surplus kids before calling finish() to reduce the
+        #       number of useless kids being forked.
 
         $CFG = get_config() ;
 

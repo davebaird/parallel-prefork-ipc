@@ -44,7 +44,7 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
     my $E_NO_DATA     = 6 ;
 
 
-    my $ppi = Parallel::Prefork::IPC->new(
+    my $pm = Parallel::Prefork::IPC->new(
         {   max_workers => 5,
 
             on_child_reap => \&worker_finished,
@@ -65,7 +65,7 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
                 }
         ) ;
 
-    while ( $GOT_USERNAMES and $ppi->signal_received !~ /^(TERM|INT)$/ ) {
+    while ( $GOT_USERNAMES and $pm->signal_received !~ /^(TERM|INT)$/ ) {
 
         # Note: this while() loop does NOT cycle for every child, so don't be
         #       tempted to set up per-child init data here. The before_fork()
@@ -79,41 +79,44 @@ C<Parallel::Prefork::IPC> - C<Parallel::Prefork> with callbacks
 
         $CFG = get_config() ;
 
-        $ppi->start and next ;
+        $pm->start and next ;
 
         # in child
 
-        my $username = $ppi->callback('get_username') ;
+        my $username = $pm->callback('get_username') ;
 
-        $ppi->finish($E_NO_USERNAME) unless $username ;
+        if (! $username) {
+            kill('USR1', $pm->manager_pid);
+            $pm->finish($E_NO_USERNAME) ;
+        }
 
-        $ppi->callback( log_child_event => { name => 'got username', note => $username } ) ;
+        $pm->callback( log_child_event => { name => 'got username', note => $username } ) ;
 
         my $data = do_work_with($username) ;
 
-        $ppi->callback( log_child_event => { name => 'finished work', note => $username } ) ;
+        $pm->callback( log_child_event => { name => 'finished work', note => $username } ) ;
 
         my $exit = $data ? $E_OK : $E_NO_DATA ;
 
-        $ppi->finish( $exit, { username => $username, data => $data } ) ;
+        $pm->finish( $exit, { username => $username, data => $data } ) ;
         }
 
-    $ppi->wait_all_children( $TIMEOUT ) ;
+    $pm->wait_all_children( $TIMEOUT ) ;
 
 
-    sub get_username ( $ppi, $kidpid ) {
+    sub get_username ( $pm, $kidpid ) {
         my $un = get_next_username_from_somewhere() ;
         $GOT_USERNAMES = 0 unless $un ;
         return $un ;
         }
 
 
-    sub log_child_event ( $ppi, $kidpid, $event ) {
+    sub log_child_event ( $pm, $kidpid, $event ) {
         warn sprintf "Child $kidpid event: %s (%s)\n", $event->{name}, $event->{note} ;
         }
 
 
-    sub worker_finished ( $ppi, $kidpid, $status, $final_payload ) {
+    sub worker_finished ( $pm, $kidpid, $status, $final_payload ) {
         if ( $status == $E_OK ) {
             my $username = $final_payload->{username} ;
             my $userdata = $final_payload->{data} ;
@@ -155,15 +158,15 @@ The C<callbacks> accessor holds a hashref mapping callback method names to coder
 
 Callbacks are passed the parent object, the child PID and the payload sent from the child:
 
-    $coderef->($ppi, $kidpid, $payload) ;
+    $coderef->($pm, $kidpid, $payload) ;
 
 In the child, callbacks are called thusly:
 
-    $ppi->callback( $method_name => $payload ) ;
+    $pm->callback( $method_name => $payload ) ;
 
 Empty/missing payloads are fine:
 
-    $ppi->callback( $method_name ) ;
+    $pm->callback( $method_name ) ;
 
 C<$payload> can be not present at all, undef, a string or number, or a reference.
 The payload will be encoded as JSON before sending, and decoded from JSON in the parent.
@@ -399,8 +402,6 @@ sub callback ( $self, $method, $data = undef ) {
 sub _send ( $self, $hashref, $kidpid = $$ ) {
     !$self->{in_child} and $kidpid == $$ and croak "Must supply target worker PID when sending from parent" ;
 
-    my $pc = $self->{in_child} ? ' child' : 'parent' ;
-
     my $pipe
         = $self->{in_child}
         ? $self->{ipc}->{$kidpid}->{pipes}->{c2p}
@@ -430,15 +431,13 @@ sub _receive ( $self, $kidpid = $$, $block = 0 ) {
 
     return unless $line ;
 
-    # warn "Received: $line" ;
-
     my $message = eval { decode_json($line)  } ;
     warn "Error decoding line: $@" if $@ ;
 
     return $message ;
     }
 
-
+# stolen from: https://davesource.com/Solutions/20080924.Perl-Non-blocking-Read-On-Pipes-Or-Files.html
 sub _read_lines_nb ($fh) {
     state %nonblockGetLines_last ;
 
